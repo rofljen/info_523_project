@@ -1,0 +1,122 @@
+---
+title: "Facebook Network Analysis"
+subtitle: "INFO 523"
+author:
+  - name: "Jennifer Haliewicz"
+    affiliation: "Department of Linguistics, Univeristy of Arizona, Tucson, AZ"
+  - name: "Instructor - Cristian Román-Palacios"
+    affiliation: "School of Information, University of Arizona, Tucson, AZ"
+tags: [R, RStudio, HW6]
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(Matrix)
+library(ggplot2)
+library(igraph)
+library(reshape2)
+library(RColorBrewer)
+library(ggraph)
+library(tidygraph)
+library(HiveR)
+
+# Set file path to Facebook edge data
+data_path <- "C:/Users/roflj/Documents/info523/presentation/facebook_combined.txt"
+
+# Read Facebook edge data
+edge_data <- read.table(data_path, header = FALSE, col.names = c("Source", "Target"))
+
+# Set seed for reproducibility
+set.seed(123)
+
+# Sample 10% of the data
+num_rows <- nrow(edge_data)
+num_sampled_rows <- ceiling(0.1 * num_rows)
+sampled_rows <- sample(num_rows, num_sampled_rows)
+subset_fb_edges <- edge_data[sampled_rows, ]
+
+# Create graph object
+g <- graph_from_data_frame(subset_fb_edges, directed = FALSE)
+
+# Compute node degrees and assign colors
+node_degrees <- degree(g)
+color_gradient <- colorRampPalette(c("lightblue", "darkblue"))
+node_colors <- color_gradient(max(node_degrees))[node_degrees]
+
+# Plot network using Kamada-Kaway layout
+layout_kk <- layout_with_kk(g) * 50
+network_plot <- plot(
+  g,
+  layout = layout_kk,
+  vertex.size = 5,
+  vertex.color = node_colors,
+  vertex.label = NA,
+  edge.width = 1,
+  edge.arrow.size = 0.2,
+  edge.color = "gray80",
+  main = "Network Visualization with Kamada-Kaway Layout",
+  vertex.frame.color = NA
+)
+print(network_plot)
+
+# Compute centralities
+degree_centrality <- degree(g)
+eigenvector_centrality <- eigen_centrality(g)$vector
+
+# Prepare node and edge data frames
+vertices <- data.frame(
+  name = V(g)$name,
+  degree_centrality = degree_centrality,
+  eigenvector_centrality = eigenvector_centrality
+)
+
+print(vertices)
+
+edges <- data.frame(
+  from = as.integer(factor(subset_fb_edges$Source, levels = V(g)$name)),
+  to = as.integer(factor(subset_fb_edges$Target, levels = V(g)$name))
+)
+
+print(edges)
+
+graph_tbl <- tbl_graph(nodes = vertices, edges = edges)
+
+print(graph_tbl)
+
+# Plot degree centrality using circlepack layout
+set.seed(1)
+dc_plot <- ggraph(graph_tbl, layout = 'circlepack') +
+  geom_node_circle(aes(fill = degree_centrality), linewidth = 0.25, n = 50) +
+  geom_edge_link() +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +
+  coord_fixed() +
+  ggtitle("Degree Centrality Visualization with Circlepack Layout") +
+  theme_graph()
+print(dc_plot)
+
+num_bins <- 5
+breaks <- quantile(vertices$eigenvector_centrality, probs = seq(0, 1, length.out = num_bins + 1))
+colors <- c("Low" = "pink", "Medium-Low" = "turquoise", "Medium" = "gold", "Medium-High" = "orange", "High" = "darkred")
+vertices$size <- scales::rescale(vertices$eigenvector_centrality, to = c(1, 5))
+vertices$bin <- cut(vertices$eigenvector_centrality, breaks = breaks, labels = names(colors), include.lowest = TRUE)
+
+graph_tbl <- tbl_graph(nodes = vertices, edges = edges)
+
+# Verify the structure of graph_tbl
+print(graph_tbl)
+
+# Check if 'bin' and 'size' columns are present in the nodes
+print(graph_tbl$nodes)
+graph_igraph <- as.igraph(graph_tbl)
+layout_fr <- layout_with_fr(graph_igraph, niter = 10000)
+
+# Plot eigenvector centrality
+eigen_plot <- ggraph(graph_tbl, layout = layout_fr) +
+  geom_edge_link(color = "gray80") +
+  geom_node_point(aes(color = bin, size = size)) +
+  scale_color_manual(values = colors, name = "Eigenvector Centrality Bin") +
+  scale_size_continuous(range = c(1, 5), name = "Node Size") +
+  ggtitle("Eigenvector Centrality Visualization with Custom Legends") +
+  theme_graph()
+
+print(eigen_plot)
